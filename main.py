@@ -1,0 +1,4 @@
+main () -> None:
+  pass
+
+main()
