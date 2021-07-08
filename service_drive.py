@@ -8,7 +8,7 @@ from google.auth.transport.requests import Request
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 #Archivo generado para la api
-ARCHIVO_SECRET_CLIENT = 'client_secret_drive.json'
+ARCHIVO_SECRET_CLIENT = 'client_secret.json'
 
 PERMISOS = ['https://www.googleapis.com/auth/drive']
 
@@ -69,3 +69,5 @@ def obtener_servicio() -> Resource:
     :return: service
     """
     return build(API_NAME, API_VERSION, credentials=generar_credenciales())
+
+obtener_servicio()
