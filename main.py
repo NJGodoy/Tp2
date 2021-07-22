@@ -1,6 +1,7 @@
 import service_drive
 import service_gmail
 import os
+from apiclient.http import MediaFileUpload
 
 SERVICIO_DRIVE = service_drive.obtener_servicio()
 SERVICIO_GMAIL = service_gmail.obtener_servicio()
@@ -16,7 +17,7 @@ def listar_remoto() -> None:
     print(f"{nombre}")
 
 def listar_local(ruta = BASE_DIR) -> None:
-  print('''\n\n
+  print(f'''\n\n{ruta}
   ============================''')
   for archivo in os.scandir(ruta):
     if archivo.is_dir(): tipo = "Carpeta"
@@ -65,9 +66,11 @@ def subir_archivo_remoto(nombre_archivo : str, ruta : str) -> None:
   '''
   Sube el archivo a la carpeta remota
   '''
-  metadata = {'name' : nombre_archivo}
-  SERVICIO_DRIVE.files().create(body = metadata,
-                                fields = "id").execute()
+  file_metadata = {'name': nombre_archivo}
+  media = MediaFileUpload(ruta)
+  SERVICIO_DRIVE.files().create(body=file_metadata,
+                                    media_body=media,
+                                    fields='id').execute()
 
 
 def subir_archivo(nombre_archivo : str, cuerpo : str) -> None:
@@ -76,8 +79,7 @@ def subir_archivo(nombre_archivo : str, cuerpo : str) -> None:
   '''
   with open(nombre_archivo, "w") as archivo:
     archivo.writelines(cuerpo)
-  ruta = os.path.join(BASE_DIR, nombre_archivo)
-  subir_archivo_remoto(nombre_archivo, ruta)
+  subir_archivo_remoto(nombre_archivo, os.path.abspath(nombre_archivo))
 
 
 def crear_cuerpo_archivo() -> str:
@@ -125,6 +127,10 @@ def main() -> None:
       submenu_listar()
     elif opcion == "2":
       crear_archivo()
+    elif opcion == "3":
+      listar_local()
+      nombre = input("\n\nIngrese el nombre del archivo con su extension: ")
+      subir_archivo_remoto(nombre, os.path.abspath(nombre))
     elif opcion == "8":
       continuar = False
 
