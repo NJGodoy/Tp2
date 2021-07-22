@@ -57,7 +57,7 @@ def procesar_mostrar_mails(mails, numerada):
                         cuerpo = "\n"
                     else:
                         cuerpo = cuerpo
-                elif content_type == 'text':
+                elif tipo_contenido == 'text':
                     cuerpo = mensaje_email.get_payload()
                 else:
                     cuerpo = ""
