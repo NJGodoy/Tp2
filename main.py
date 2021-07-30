@@ -48,7 +48,12 @@ def crear(local : dict, remoto : dict, BASE_DIR : str) -> None:
               'name': i,
               'parents': [id_carpeta]
               }
-          SERVICIO_DRIVE.files().create(body=archivo_metadata).execute()
+          if local['archivos'][i]['carpeta'] == BASE_DIR.rsplit('\\', 1)[1]:
+              media = MediaFileUpload(BASE_DIR+'\\'+i)
+              SERVICIO_DRIVE.files().create(body=archivo_metadata, media_body = media).execute()
+          else:
+              media = MediaFileUpload(BASE_DIR+'\\'+str(local['archivos'][i]['carpeta'])+'\\'+i)
+              SERVICIO_DRIVE.files().create(body=archivo_metadata, media_body = media).execute()
 
   for i in remoto['archivos']:#Si no esta en local, lo agrego
       if i not in local['archivos']:
