@@ -5,13 +5,147 @@ import io
 from apiclient.http import MediaFileUpload
 from apiclient.http import MediaIoBaseDownload
 import base64
+import csv
 import email
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import time
 from datetime import datetime, timedelta
 
 SERVICIO_DRIVE = service_drive.obtener_servicio()
 SERVICIO_GMAIL = service_gmail.obtener_servicio()
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+def guardar_zip_alumno(ubicacion_zip: str) -> None:
+    '''
+    Coloca los archivos del zip en la carpeta del alumno correspondiente.
+    '''
+    print('Extrayendo los archivos comprimidos en el zip.')
+
+def enviar_mensaje(mensaje_a_enviar: str) -> None:
+    '''
+    Termina el envio del mail en respuesta al alumno.
+    '''
+    envio = SERVICIO_GMAIL.users().messages().send(userId = 'me', body = {'raw': mensaje_a_enviar}).execute()
+
+def crear_mensaje(destinatario: str, asunto: str, texto_mensaje: str) -> str:
+    '''
+    Crea las partes basicas del mail a enviar, adjuntandole al cuerpo del mensaje 
+    el texto que indica el formato de entrega del alumno. 
+    Devuelve la informacion codificada del mail, para que sea enviado.
+    '''
+    msj_mime = MIMEMultipart()
+    msj_mime['to'] = destinatario
+    msj_mime['subject'] = asunto
+    msj_mime.attach(MIMEText(texto_mensaje, 'plain'))
+    raw = base64.urlsafe_b64encode(msj_mime.as_bytes()).decode()
+    return raw
+
+def revisar_csv(info_mail_elegido: list, lista_errores: list) -> None:
+    '''
+    Compara el contenido de alumnos.csv con la entrega, utilizando el 
+    asunto (que contiene el padron) y la direccion del alumno remitente.
+    '''
+    titulos = []
+    filas = []
+
+    with open("alumnos.csv", 'r') as csvfile:
+        print('Comparando entrega con alumnos.csv')
+        leer_csv = csv.reader(csvfile)
+
+        titulos = next(leer_csv)
+
+        for fila in leer_csv:
+            filas.append(fila)
+
+        print('Los Titulos son: ' + ', '.join(titulo for titulo in titulos))
+        print('\nLas primeras 5 filas son:\n')
+        for fila in filas[:5]:
+            # parsing each column of a row
+            for columna in fila:
+                print(columna)
+        print('\n')
+        
+        #Ver si el padron del alumno coincide con su mail:
+        padron = info_mail_elegido[0]
+        mail_enviado = info_mail_elegido[3]
+        if padron in ([fila[1] for fila in filas]):
+            print('El Padron en el asunto del mail SI existe en alumnos.csv')
+            ubicacion_padron = [fila[1] for fila in filas].index(padron)
+            if mail_enviado in ([fila[2] for fila in filas]):
+                print('El Mail SI existe en el archivo.')
+                if filas[ubicacion_padron][2] == mail_enviado:
+                    print('El Mail de envio SI concuerda con el Mail del alumno en el archivo.')
+                    lista_errores.append("No hay problemas con el formato de envio.")
+                else:
+                    print('El Mail de envio NO concuerda con el Mail del alumno en el archivo.')
+                    lista_errores.append("Mail de envio NO concuerda con Mail de Alumno.")
+            else:
+                print('El mail NO existe en el archivo.')
+                lista_errores.append("Mail de envio NO existe en el archivo de alumnos.")
+        else:
+            print('El Padron en el asunto del mail NO existe en alumnos.csv')
+            lista_errores.append("Padron NO concuerda con Mail de Alumno.")
+
+def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip: str) -> None:
+    '''
+    Notifica al alumno por mail sobre su entrega, previamente 
+    revisando su formato en caso de que haya errores, para luego 
+    proceder con el envio del mail.
+    '''
+
+    if 'El archivo adjunto enviado es ZIP.' in lista_errores:
+        lista_errores = []
+    else:
+        lista_errores.append('El archivo adjunto enviado NO es ZIP.')
+
+    revisar_csv(info_mail_elegido, lista_errores)
+
+    if lista_errores == ["No hay problemas con el formato de envio."]:
+        entrega_correcta = True
+    else:
+        entrega_correcta = False
+
+    if entrega_correcta == True:
+        veredicto = 'Entrega exitosa, no se presento ningun inconveniente.'
+    else:
+        veredicto = 'Esos son los inconvenientes con tu entrega.\n'
+
+    separador = '\n'
+    x = separador.join(lista_errores)
+
+    texto_mensaje = x + veredicto
+
+    #Envio mail.
+    print('Se enviara un mail notificando el estado de la entrega al alumno.')
+
+    mensaje_a_enviar = crear_mensaje(info_mail_elegido[3], info_mail_elegido[0], texto_mensaje)
+    
+    enviar_mensaje(mensaje_a_enviar)
+
+    if entrega_correcta == True:
+        print('Se guardara el archivo del alumno en su carpeta correspondiente.')
+        guardar_zip_alumno(ubicacion_zip)
+    else:
+        print('El formato de entrega es incorrecto, no se guardara la entrega del alumno en su carpeta.')
+
+def submenu_actualizar():
+    print('''\n\nVer Mails para recibir la entrega de un Alumno.
+    ================================
+    1. Lista Completa
+    2. Busqueda por filtros
+    ''')
+    lista_mails_numerada = []
+    accion = "Actualizar"
+
+    opcion = input("Ingrese opción: ")
+    while not opcion in ["1", "2"]:
+        opcion = input("Ingrese opción: ")
+
+    if opcion == "1":
+        lista_completa(lista_mails_numerada, accion)
+    elif opcion == "2":
+        buscar_mail(lista_mails_numerada, accion)
 
 def enontrar_id(carpeta : str) -> str:
   lista_archivos = SERVICIO_DRIVE.files().list(orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute() #Lo uso para encontrar el id de la carpeta
@@ -177,28 +311,47 @@ def loop_carpeta_remota(BASE_DIR : str) -> dict:
                       diccionario_remoto['archivos'][i.get("name")]['archivo_id'] = i.get("id")
   return diccionario_remoto
 
-def accion_apropiada(accion):
+def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, ubicacion_zip) -> None:
+    '''
+    Determina si se debe continuar con el programa
+    (en caso de que se haya elegido la funcion 7, Actualizar Entrega).
+    '''
     if accion == 'Generar':
         print('Archivos guardados en el directorio actual.')
     elif accion == 'Actualizar':
-         print('Se enviara un mail notificadando el estado de la entrega al alumno.')
+        print('Se determinara si la entrega tiene el formato correcto.')
+        notificar_alumno(info_mail_elegido, lista_errores, ubicacion_zip)
 
-def elegir_mail(numerada, accion):
+def elegir_mail(numerada: list, accion: str) -> None:
+    '''
+    Recibe la eleccion del mail indicado por el usuario y crea info_mail_elegido, lista 
+    que contiene informacion clave del mail elegido.
+    Luego, lleva el usuario a la descarga del archivo adjunto del mail.
+    '''
     eleccion_mail = int(input('Inserte el numero del mail a elegir: '))-1
     while type(eleccion_mail) != int:
         eleccion_mail = int(input('Inserte el numero del mail a elegir: '))-1
-    #info_mail_elegido[0] contiene el Asunto, [1] el Cuerpo, y [2] la id del mensaje.
+    #info_mail_elegido[0] contiene el Asunto, [1] el Cuerpo, [2] la id del mensaje y [3] el remitente.
     info_mail_elegido = numerada[eleccion_mail]
 
     print('================================')
-    print('Se Generaran las Carpetas a partir del mail con Asunto: ', info_mail_elegido[0], '.')
+    if accion == 'Generar':
+        print('Se Generaran las Carpetas a partir del mail con Asunto: ', info_mail_elegido[0], '.')
+    elif accion == 'Actualizar':
+        print('Se recibira la entrega del Alumno a partir del mail con Asunto: ', info_mail_elegido[0], '.')
 
-    descargar_adjunto(SERVICIO_GMAIL, 'me', info_mail_elegido[2], BASE_DIR)
+    lista_errores = []
+    ubicacion_zip = []
+    
+    descargar_adjunto(SERVICIO_GMAIL, 'me', info_mail_elegido[2], BASE_DIR, lista_errores, ubicacion_zip)
 
-    accion_apropiada(accion)
+    accion_apropiada(info_mail_elegido, accion, lista_errores, ubicacion_zip)
 
-def procesar_mostrar_mails(mails, numerada):
-
+def procesar_mostrar_mails(mails, numerada: list) -> None:
+    '''
+    Procesa e imprime los mails de la lista de mails recibida(en orden de mas a menos recientes), y 
+    crea una lista con la informacion clave de cada mail (su asunto, cuerpo, id y mail remitente).
+    '''
     mensajes = mails.get('messages')
 
     n = 0
@@ -220,16 +373,21 @@ def procesar_mostrar_mails(mails, numerada):
                     partes = mensaje_email.get_payload()
                     cuerpo = partes[0].get_payload()
                     if type(cuerpo) == list:
-                        cuerpo = "\n"
+                        cuerpo = "(Mail contiene archivo adjunto.)\n"
                     else:
                         cuerpo = cuerpo
-                elif tipo_contenido == 'text':
+                elif content_type == 'text':
                     cuerpo = mensaje_email.get_payload()
                 else:
                     cuerpo = ""
                     print("\nMensaje no es multipart ni texto, el cuerpo del mail esta vacio.")
-            
-                numerada.append([mensaje_email['Subject'], cuerpo, mensaje['id']])
+
+                if "<" in mensaje_email['from']:
+                    mail_remitente = mensaje_email['from'].split(" ")[2].split("<")[1].split(">")[0]
+                else:
+                    mail_remitente = mensaje_email['from']
+
+                numerada.append([mensaje_email['Subject'], cuerpo, mensaje['id'], mail_remitente])
                 
                 print('Mail', n+1, '- De:',mensaje_email['from'],'Asunto:' , mensaje_email['Subject'], 
                     '\nCuerpo del mail:', cuerpo)
@@ -238,8 +396,12 @@ def procesar_mostrar_mails(mails, numerada):
 
                 eleccion_procesar = False
 
-def descargar_adjunto(servicio, id_usuario, id_msj, directorio=""):
-    
+def descargar_adjunto(servicio, id_usuario: str, 
+       id_msj: str, directorio: str, lista_errores: list, ubicacion_zip: list) -> None:
+    '''
+    Descarga los archivos adjuntos al mail seleccionado por el usuario, y reconoce si 
+    el archivo es de formato comprimido zip.
+    '''
     mensaje_adj = servicio.users().messages().get(userId=id_usuario, id=id_msj).execute()
     partes = [mensaje_adj['payload']]
     while partes:
@@ -262,12 +424,23 @@ def descargar_adjunto(servicio, id_usuario, id_msj, directorio=""):
             if datos_archivo:
                 ubicacion = ''.join([directorio, parte['filename']])
                 print(ubicacion)
+                if ubicacion.endswith('.zip'):
+                    print('El archivo adjunto es ZIP.')
+                    lista_errores.append('El archivo adjunto enviado es ZIP.')
+                    ubicacion_zip.append(ubicacion)
+                else:
+                    print('El archivo adjunto NO es ZIP.')
                 with open(ubicacion, 'wb') as f:
                     f.write(datos_archivo)
 
     print('Descarga Completa.')
 
-def buscar_mail(lista_numerada, accion):
+def buscar_mail(lista_numerada: list, accion: str) -> None:
+    '''
+    Muestra los mails que Gmail reconoce como resultados de su 
+    busqueda, utilizando una palabra elegida por el usuario. Luego, lleva 
+    el usuario a la eleccion del mail correcto.
+    '''
     print('''\n\nBuscar Mails por medio de palabras clave:
     ================================
     ''')
@@ -283,19 +456,22 @@ def buscar_mail(lista_numerada, accion):
         print('Desea ingresar otra busqueda?')
         eleccion_busqueda = input('(S/N): ')
         while not eleccion_busqueda in ["S", "N"]:
-            eleccion_busqueda = input("Ingrese opción: ")
+            eleccion_busqueda = input("(S/N): ")
 
         if eleccion_busqueda == "S":
             eleccion_busqueda = True
         else:
             if lista_numerada == []:
-              eleccion_busqueda = True
+                eleccion_busqueda = True
             else:
                 elegir_mail(lista_numerada, accion)
                 eleccion_busqueda = False
 
-def lista_completa(lista_numerada, accion):
-    
+def lista_completa(lista_numerada: list, accion: str) -> None:
+    '''
+    Muestra la cantidad de mails seleccionada, y lleva 
+    el usuario a la eleccion del mail correcto.
+    '''
     max_mails = int(input('Seleccione la cantidad de mails a mostrar: '))
     while type(max_mails) != int:
         max_mails = int(input('Seleccione la cantidad de mails a mostrar: '))
@@ -500,8 +676,10 @@ def main() -> None:
       diccionario_remoto = loop_carpeta_remota(BASE_DIR)
       sincronizar(diccionario_local, diccionario_remoto, BASE_DIR)
       print('Sincronizado con éxito!')
-    elif opcion == "7":
+    elif opcion == "6":
       submenu_generar()
+    elif opcion == "7":
+      submenu_actualizar()
     elif opcion == "8":
       continuar = False
 
