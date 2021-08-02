@@ -1,6 +1,7 @@
 import service_drive
 import service_gmail
 import os
+import zipfile
 import io
 from apiclient.http import MediaFileUpload
 from apiclient.http import MediaIoBaseDownload
@@ -17,19 +18,19 @@ SERVICIO_DRIVE = service_drive.obtener_servicio()
 SERVICIO_GMAIL = service_gmail.obtener_servicio()
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-def obtener_nombres_csv(info_mail_elegido: list) -> str:
+def obtener_nombres_csv(info_mail_elegido: list, nombre_evaluacion: list) -> str:
     '''
     Obtiene, revisando los archivos csv, los nombres apropiados para ubicar el directorio local en el 
     cual corresponde la extraccion de los archivos.
     '''
-    nombre_eval = "Evaluacion Test"
+    nombre_eval = nombre_evaluacion[0]
 
     titulos = []
     filas = []
     titulos2 = []
     filas2 = []
 
-    with open("alumnos.csv", 'r') as csvfile:
+    with open(os.path.join(BASE_DIR,'alumnos.csv'), 'r') as csvfile:
         print('================================')
         print('Revisando alumnos.csv:\n\n')
         leer_csv = csv.reader(csvfile)
@@ -54,7 +55,7 @@ def obtener_nombres_csv(info_mail_elegido: list) -> str:
         nombre_alumno = filas[ubicacion_padron][0]
         print('El alumno es:',nombre_alumno)
 
-    with open("docente-alumnos.csv", 'r') as csvfile2:
+    with open(os.path.join(BASE_DIR,'docente-alumnos.csv'), 'r') as csvfile2:
         print('================================')
         print('Revisando docente-alumnos.csv:\n\n')
         leer_csv = csv.reader(csvfile2)
@@ -103,12 +104,12 @@ def descomprimir_entrega(ubicacion_zip: list, ubicacion_entrega: str) -> None:
         print('Actualizacion de entrega completada.')
         print('================================')
 
-def guardar_entrega_alumno(ubicacion_zip: list, info_mail_elegido: list) -> None:
+def guardar_entrega_alumno(ubicacion_zip: list, info_mail_elegido: list, nombre_evaluacion: list) -> None:
     '''
     Recibe los nombres de la evaluacion, el docente y el alumno, y guarda 
     la entrega del alumno, revisando si la ubicacion correcta existe. Si no existe, la genera.
     '''
-    nombre_eval, nombre_docente, nombre_alumno = obtener_nombres_csv(info_mail_elegido)
+    nombre_eval, nombre_docente, nombre_alumno = obtener_nombres_csv(info_mail_elegido, nombre_evaluacion)
 
     ubicacion_entrega = (os.path.abspath(os.path.join(BASE_DIR,nombre_eval,nombre_docente,nombre_alumno)))
 
@@ -149,7 +150,7 @@ def revisar_csv(info_mail_elegido: list, lista_errores: list) -> None:
     titulos = []
     filas = []
 
-    with open("alumnos.csv", 'r') as csvfile:
+    with open(os.path.join(BASE_DIR,'alumnos.csv'), 'r') as csvfile:
         print('================================')
         print('Comparando entrega con alumnos.csv\n')
         leer_csv = csv.reader(csvfile)
@@ -189,7 +190,7 @@ def revisar_csv(info_mail_elegido: list, lista_errores: list) -> None:
             print('El Padron en el asunto del mail NO existe en alumnos.csv')
             lista_errores.append("Padron NO concuerda con Mail de Alumno.")
 
-def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip: list) -> None:
+def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip: list, nombre_evaluacion: list) -> None:
     '''
     Notifica al alumno por mail sobre su entrega, previamente 
     revisando su formato en caso de que haya errores, para luego 
@@ -227,13 +228,13 @@ def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip
 
     if entrega_correcta == True:
         print('Se guardara el archivo del alumno en su carpeta correspondiente.\n')
-        guardar_entrega_alumno(ubicacion_zip, info_mail_elegido)
+        guardar_entrega_alumno(ubicacion_zip, info_mail_elegido, nombre_evaluacion)
     else:
         print('El formato de entrega es incorrecto, no se guardara la entrega del alumno en su carpeta.')
 
-def submenu_actualizar() -> None:
-  existen_archivos_csv = (os.path.exists('alumnos.csv') and 
-          os.path.exists('docentes.csv') and os.path.exists('docente-alumnos.csv'))
+def submenu_actualizar(nombre_evaluacion) -> None:
+  existen_archivos_csv = (os.path.exists(os.path.join(BASE_DIR,'alumnos.csv')) 
+    and os.path.exists(os.path.join(BASE_DIR,'docentes.csv')) and os.path.exists(os.path.join(BASE_DIR,'docente-alumnos.csv')))
   
   if existen_archivos_csv == True:
     print('Los archivos csv existen, continuando con el procedimiento.')
@@ -250,13 +251,13 @@ def submenu_actualizar() -> None:
         opcion = input("Ingrese opción: ")
 
     if opcion == "1":
-        lista_completa(lista_mails_numerada, accion)
+        lista_completa(lista_mails_numerada, accion, nombre_evaluacion)
 
     elif opcion == "2":
-        buscar_mail(lista_mails_numerada, accion)
+        buscar_mail(lista_mails_numerada, accion, nombre_evaluacion)
 
   else:
-      print('''alumnos.csv no existe. Por favor, ejecute la opcion 6 "Generar 
+      print('''Los archivos csv no existen. Por favor, ejecute la opcion 6 "Generar 
           carpetas de una evaluacion" para que los archivos csv necesarios esten disponibles.''')
 
 def enontrar_id(carpeta : str) -> str:
@@ -348,7 +349,6 @@ def actualizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
                       SERVICIO_DRIVE.files().update(fileId=remoto['archivos'][i]['archivo_id'], media_body=contenido_actualizar).execute()
 
 def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
-  print('SINCRONIZANDO.')
   #primero reviso que exista el directorio, si no esta, lo creo
   existe_carpeta = False
   lista_archivos = SERVICIO_DRIVE.files().list(orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute()
@@ -363,14 +363,10 @@ def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
           'mimeType': 'application/vnd.google-apps.folder'
           }
       SERVICIO_DRIVE.files().create(body=archivo_metadata).execute()
-  print('SINCRONIZANDO..')
   crear(local, remoto, BASE_DIR)
-  print('SINCRONIZANDO...')
   actualizar(local, remoto, BASE_DIR)
-  print('SINCRONIZANDO..')
 
 def loop_carpeta_local(BASE_DIR : str) -> dict:
-  print('SINCRONIZANDO.')
   diccionario_local = {'carpetas':[],'archivos':{}}
   for archivo in os.scandir(BASE_DIR): #loop los archivos locales
       if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)) == False: #Archivos
@@ -383,12 +379,13 @@ def loop_carpeta_local(BASE_DIR : str) -> dict:
       else:
           diccionario_local['carpetas'].append(str(archivo.name))
           for i in os.scandir(BASE_DIR+'\\'+str(archivo.name)):
-              get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name+'\\'+i.name) #consigo la fecha de modificacion
-              modify_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(get_time)) #lo paso a formato fecha
-              fecha_mod_local = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S') #lo paso a type date
-              diccionario_local['archivos'][str(i.name)] = {}
-              diccionario_local['archivos'][str(i.name)]['modificacion'] = fecha_mod_local
-              diccionario_local['archivos'][str(i.name)]['carpeta'] = archivo.name
+              if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)+'\\'+i.name) == False:
+                get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name+'\\'+i.name) #consigo la fecha de modificacion
+                modify_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(get_time)) #lo paso a formato fecha
+                fecha_mod_local = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S') #lo paso a type date
+                diccionario_local['archivos'][str(i.name)] = {}
+                diccionario_local['archivos'][str(i.name)]['modificacion'] = fecha_mod_local
+                diccionario_local['archivos'][str(i.name)]['carpeta'] = archivo.name
   return diccionario_local
 
 def loop_carpeta_remota(BASE_DIR : str) -> dict:
@@ -423,7 +420,7 @@ def loop_carpeta_remota(BASE_DIR : str) -> dict:
                       diccionario_remoto['archivos'][i.get("name")]['archivo_id'] = i.get("id")
   return diccionario_remoto
 
-def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, ubicacion_zip: list) -> None:
+def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, ubicacion_zip: list, nombre_evaluacion: list) -> None:
     '''
     Determina si se debe continuar con el programa
     (en caso de que se haya elegido la funcion 7, Actualizar Entrega).
@@ -432,9 +429,9 @@ def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, 
         print('Archivos guardados en el directorio actual.')
     elif accion == 'Actualizar':
         print('\nSe determinara si la entrega tiene el formato correcto.')
-        notificar_alumno(info_mail_elegido, lista_errores, ubicacion_zip)
+        notificar_alumno(info_mail_elegido, lista_errores, ubicacion_zip, nombre_evaluacion)
 
-def elegir_mail(numerada: list, accion: str) -> None:
+def elegir_mail(numerada: list, accion: str, nombre_evaluacion: list) -> None:
     '''
     Recibe la eleccion del mail indicado por el usuario y crea info_mail_elegido, lista 
     que contiene informacion clave del mail elegido.
@@ -455,9 +452,10 @@ def elegir_mail(numerada: list, accion: str) -> None:
     lista_errores = []
     ubicacion_zip = []
     
-    descargar_adjunto(SERVICIO_GMAIL, 'me', info_mail_elegido[2], BASE_DIR, lista_errores, ubicacion_zip)
+    descargar_adjunto(SERVICIO_GMAIL, 'me', info_mail_elegido[2], BASE_DIR, 
+      lista_errores, ubicacion_zip, nombre_evaluacion, accion)
 
-    accion_apropiada(info_mail_elegido, accion, lista_errores, ubicacion_zip)
+    accion_apropiada(info_mail_elegido, accion, lista_errores, ubicacion_zip, nombre_evaluacion)
 
 def procesar_mostrar_mails(mails, numerada: list) -> None:
     '''
@@ -508,12 +506,58 @@ def procesar_mostrar_mails(mails, numerada: list) -> None:
 
                 eleccion_procesar = False
 
-def descargar_adjunto(servicio, id_usuario: str, 
-       id_msj: str, directorio: str, lista_errores: list, ubicacion_zip: list) -> None:
+def unzip(fileName: str):
+    with zipfile.ZipFile(BASE_DIR+'//'+fileName, 'r') as zip_ref:
+        zip_ref.extractall(BASE_DIR)
+
+def main_folder(asunto_mail: str):
+    os.chdir(BASE_DIR)
+    try:
+        os.makedirs(asunto_mail)
+    except Exception:
+        pass
+
+def profesor_folders(asunto_mail: str):
+    with open('docentes.csv', 'r', encoding='utf-8-sig') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        for row in csv_reader:
+            os.chdir(BASE_DIR+'//'+asunto_mail)
+            try:
+                os.makedirs(row[0])
+            except Exception:
+                pass
+
+def alumnos_folders(asunto_mail: str):
+    with open(BASE_DIR+'//'+'docente-alumnos.csv', 'r', encoding='utf-8-sig') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        for row in csv_reader:
+            os.chdir(BASE_DIR+'//'+asunto_mail+'//'+row[0])
+            try:
+                os.makedirs(row[1])
+            except Exception:
+                pass
+
+def descargar_adjunto(servicio, id_usuario: str, id_msj: str, directorio: str, lista_errores: list, 
+  ubicacion_zip: list, nombre_evaluacion: list, accion: str) -> None:
     '''
     Descarga los archivos adjuntos al mail seleccionado por el usuario, y reconoce si 
-    el archivo es de formato comprimido zip.
+    el archivo es de formato comprimido zip. Devuelve el nombre de la evaluacion, dado en el asunto.
     '''
+    texto = SERVICIO_GMAIL.users().messages().get(userId=id_usuario,id=id_msj,format='raw', metadataHeaders=None).execute()
+    mensaje_email = email.message_from_bytes(base64.urlsafe_b64decode(texto['raw']))
+    for part in mensaje_email.walk():
+        if part.get_content_maintype() == 'multipart':
+            continue
+        if part.get('Content-Disposition') is None:
+            continue
+        fileName = part.get_filename()
+        if bool(fileName):
+            filePath = os.path.join(BASE_DIR, fileName)
+            if not os.path.isfile(filePath) :
+                fp = open(filePath, 'wb')
+                fp.write(part.get_payload(decode=True))
+                fp.close()
+
     mensaje_adj = servicio.users().messages().get(userId=id_usuario, id=id_msj).execute()
     partes = [mensaje_adj['payload']]
     while partes:
@@ -545,9 +589,19 @@ def descargar_adjunto(servicio, id_usuario: str,
                 with open(ubicacion, 'wb') as f:
                     f.write(datos_archivo)
 
-    print('Descarga Completa.')
+    unzip(fileName)
+    asunto_mail = mensaje_email['Subject']
+    if accion == 'Generar': 
+      #Si el asunto del mail contiene el nombre de la evaluacion, guardarlo en la lista.
+      nombre_evaluacion.append(asunto_mail)
+      main_folder(asunto_mail)
+      profesor_folders(asunto_mail)
+      alumnos_folders(asunto_mail)
+      print('Carpetas generadas.')
+    else:
+      print('Descarga Completa.')
 
-def buscar_mail(lista_numerada: list, accion: str) -> None:
+def buscar_mail(lista_numerada: list, accion: str, nombre_evaluacion: list) -> None:
     '''
     Muestra los mails que Gmail reconoce como resultados de su 
     busqueda, utilizando una palabra elegida por el usuario. Luego, lleva 
@@ -576,10 +630,10 @@ def buscar_mail(lista_numerada: list, accion: str) -> None:
             if lista_numerada == []:
                 eleccion_busqueda = True
             else:
-                elegir_mail(lista_numerada, accion)
+                elegir_mail(lista_numerada, accion, nombre_evaluacion)
                 eleccion_busqueda = False
 
-def lista_completa(lista_numerada: list, accion: str) -> None:
+def lista_completa(lista_numerada: list, accion: str, nombre_evaluacion: list) -> None:
     '''
     Muestra la cantidad de mails seleccionada, y lleva 
     el usuario a la eleccion del mail correcto.
@@ -593,9 +647,9 @@ def lista_completa(lista_numerada: list, accion: str) -> None:
 
     procesar_mostrar_mails(lista_mails, lista_numerada)
 
-    elegir_mail(lista_numerada, accion)
+    elegir_mail(lista_numerada, accion, nombre_evaluacion)
 
-def submenu_generar():
+def submenu_generar(nombre_evaluacion: list):
     print('''\n\nVer Mails para la Generacion de Carpetas
     ================================
     1. Lista Completa
@@ -609,9 +663,9 @@ def submenu_generar():
         opcion = input("Ingrese opción: ")
 
     if opcion == "1":
-        lista_completa(lista_mails_numerada, accion)
+        lista_completa(lista_mails_numerada, accion, nombre_evaluacion)
     elif opcion == "2":
-        buscar_mail(lista_mails_numerada, accion)
+        buscar_mail(lista_mails_numerada, accion, nombre_evaluacion)
 
 def listar_remoto() -> None:
   print('''\n\n
@@ -678,7 +732,6 @@ def subir_archivo_remoto(nombre_archivo : str, ruta : str) -> None:
                                     media_body=media,
                                     fields='id').execute()
 
-
 def subir_archivo(nombre_archivo : str, cuerpo : str) -> None:
   '''
   Sube el archivo a la carpeta local
@@ -686,7 +739,6 @@ def subir_archivo(nombre_archivo : str, cuerpo : str) -> None:
   with open(nombre_archivo, "w") as archivo:
     archivo.writelines(cuerpo)
   subir_archivo_remoto(nombre_archivo, os.path.abspath(nombre_archivo))
-
 
 def crear_cuerpo_archivo() -> str:
   '''
@@ -784,14 +836,16 @@ def main() -> None:
       if id_archivo != "0":
         descargar_archivo_remoto(id_archivo, nombre_archivo)
     elif opcion == "5":
+      print('Sincronizando....')  
       diccionario_local = loop_carpeta_local(BASE_DIR)
       diccionario_remoto = loop_carpeta_remota(BASE_DIR)
       sincronizar(diccionario_local, diccionario_remoto, BASE_DIR)
       print('Sincronizado con éxito!')
     elif opcion == "6":
-      submenu_generar()
+      nombre_evaluacion = []
+      submenu_generar(nombre_evaluacion)
     elif opcion == "7":
-      submenu_actualizar()
+      submenu_actualizar(nombre_evaluacion)
     elif opcion == "8":
       continuar = False
 
