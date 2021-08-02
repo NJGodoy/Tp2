@@ -1,6 +1,7 @@
 import service_drive
 import service_gmail
 import os
+import zipfile
 import io
 from apiclient.http import MediaFileUpload
 from apiclient.http import MediaIoBaseDownload
@@ -348,7 +349,6 @@ def actualizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
                       SERVICIO_DRIVE.files().update(fileId=remoto['archivos'][i]['archivo_id'], media_body=contenido_actualizar).execute()
 
 def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
-  print('SINCRONIZANDO.')
   #primero reviso que exista el directorio, si no esta, lo creo
   existe_carpeta = False
   lista_archivos = SERVICIO_DRIVE.files().list(orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute()
@@ -363,14 +363,10 @@ def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
           'mimeType': 'application/vnd.google-apps.folder'
           }
       SERVICIO_DRIVE.files().create(body=archivo_metadata).execute()
-  print('SINCRONIZANDO..')
   crear(local, remoto, BASE_DIR)
-  print('SINCRONIZANDO...')
   actualizar(local, remoto, BASE_DIR)
-  print('SINCRONIZANDO..')
 
 def loop_carpeta_local(BASE_DIR : str) -> dict:
-  print('SINCRONIZANDO.')
   diccionario_local = {'carpetas':[],'archivos':{}}
   for archivo in os.scandir(BASE_DIR): #loop los archivos locales
       if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)) == False: #Archivos
@@ -383,12 +379,13 @@ def loop_carpeta_local(BASE_DIR : str) -> dict:
       else:
           diccionario_local['carpetas'].append(str(archivo.name))
           for i in os.scandir(BASE_DIR+'\\'+str(archivo.name)):
-              get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name+'\\'+i.name) #consigo la fecha de modificacion
-              modify_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(get_time)) #lo paso a formato fecha
-              fecha_mod_local = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S') #lo paso a type date
-              diccionario_local['archivos'][str(i.name)] = {}
-              diccionario_local['archivos'][str(i.name)]['modificacion'] = fecha_mod_local
-              diccionario_local['archivos'][str(i.name)]['carpeta'] = archivo.name
+              if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)+'\\'+i.name) == False:
+                get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name+'\\'+i.name) #consigo la fecha de modificacion
+                modify_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(get_time)) #lo paso a formato fecha
+                fecha_mod_local = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S') #lo paso a type date
+                diccionario_local['archivos'][str(i.name)] = {}
+                diccionario_local['archivos'][str(i.name)]['modificacion'] = fecha_mod_local
+                diccionario_local['archivos'][str(i.name)]['carpeta'] = archivo.name
   return diccionario_local
 
 def loop_carpeta_remota(BASE_DIR : str) -> dict:
@@ -508,12 +505,58 @@ def procesar_mostrar_mails(mails, numerada: list) -> None:
 
                 eleccion_procesar = False
 
+def unzip(fileName: str):
+    with zipfile.ZipFile(BASE_DIR+'//'+fileName, 'r') as zip_ref:
+        zip_ref.extractall(BASE_DIR)
+
+def main_folder(asunto_mail: str):
+    os.chdir(BASE_DIR)
+    try:
+        os.makedirs(asunto_mail)
+    except Exception:
+        pass
+
+def profesor_folders(asunto_mail: str):
+    with open('docentes.csv', 'r', encoding='utf-8-sig') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        for row in csv_reader:
+            os.chdir(BASE_DIR+'//'+asunto_mail)
+            try:
+                os.makedirs(row[0])
+            except Exception:
+                pass
+
+def alumnos_folders(asunto_mail: str):
+    with open(BASE_DIR+'//'+'docente-alumnos.csv', 'r', encoding='utf-8-sig') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        for row in csv_reader:
+            os.chdir(BASE_DIR+'//'+asunto_mail+'//'+row[0])
+            try:
+                os.makedirs(row[1])
+            except Exception:
+                pass
+
 def descargar_adjunto(servicio, id_usuario: str, 
        id_msj: str, directorio: str, lista_errores: list, ubicacion_zip: list) -> None:
     '''
     Descarga los archivos adjuntos al mail seleccionado por el usuario, y reconoce si 
     el archivo es de formato comprimido zip.
     '''
+    texto = SERVICIO_GMAIL.users().messages().get(userId=id_usuario,id=id_msj,format='raw', metadataHeaders=None).execute()
+    mensaje_email = email.message_from_bytes(base64.urlsafe_b64decode(texto['raw']))
+    for part in mensaje_email.walk():
+        if part.get_content_maintype() == 'multipart':
+            continue
+        if part.get('Content-Disposition') is None:
+            continue
+        fileName = part.get_filename()
+        if bool(fileName):
+            filePath = os.path.join(BASE_DIR, fileName)
+            if not os.path.isfile(filePath) :
+                fp = open(filePath, 'wb')
+                fp.write(part.get_payload(decode=True))
+                fp.close()
+
     mensaje_adj = servicio.users().messages().get(userId=id_usuario, id=id_msj).execute()
     partes = [mensaje_adj['payload']]
     while partes:
@@ -545,6 +588,11 @@ def descargar_adjunto(servicio, id_usuario: str,
                 with open(ubicacion, 'wb') as f:
                     f.write(datos_archivo)
 
+    unzip(fileName)
+    asunto_mail = mensaje_email['Subject']
+    main_folder(asunto_mail)
+    profesor_folders(asunto_mail)
+    alumnos_folders(asunto_mail)
     print('Descarga Completa.')
 
 def buscar_mail(lista_numerada: list, accion: str) -> None:
@@ -678,7 +726,6 @@ def subir_archivo_remoto(nombre_archivo : str, ruta : str) -> None:
                                     media_body=media,
                                     fields='id').execute()
 
-
 def subir_archivo(nombre_archivo : str, cuerpo : str) -> None:
   '''
   Sube el archivo a la carpeta local
@@ -686,7 +733,6 @@ def subir_archivo(nombre_archivo : str, cuerpo : str) -> None:
   with open(nombre_archivo, "w") as archivo:
     archivo.writelines(cuerpo)
   subir_archivo_remoto(nombre_archivo, os.path.abspath(nombre_archivo))
-
 
 def crear_cuerpo_archivo() -> str:
   '''
@@ -784,6 +830,7 @@ def main() -> None:
       if id_archivo != "0":
         descargar_archivo_remoto(id_archivo, nombre_archivo)
     elif opcion == "5":
+      print('Sincronizando....')  
       diccionario_local = loop_carpeta_local(BASE_DIR)
       diccionario_remoto = loop_carpeta_remota(BASE_DIR)
       sincronizar(diccionario_local, diccionario_remoto, BASE_DIR)
