@@ -11,16 +11,116 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 from datetime import datetime, timedelta
+from zipfile import ZipFile
 
 SERVICIO_DRIVE = service_drive.obtener_servicio()
 SERVICIO_GMAIL = service_gmail.obtener_servicio()
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-def guardar_zip_alumno(ubicacion_zip: str) -> None:
+def obtener_nombres_csv(info_mail_elegido: list) -> str:
+    '''
+    Obtiene, revisando los archivos csv, los nombres apropiados para ubicar el directorio local en el 
+    cual corresponde la extraccion de los archivos.
+    '''
+    nombre_eval = "Evaluacion Test"
+
+    titulos = []
+    filas = []
+    titulos2 = []
+    filas2 = []
+
+    with open("alumnos.csv", 'r') as csvfile:
+        print('================================')
+        print('Revisando alumnos.csv:\n\n')
+        leer_csv = csv.reader(csvfile)
+
+        titulos = next(leer_csv)
+
+        for fila in leer_csv:
+            filas.append(fila)
+
+        print('Los Titulos son: ' + ', '.join(titulo for titulo in titulos))
+        print('\nLas primeras 5 filas son:\n')
+        for fila in filas[:5]:
+
+            for columna in fila:
+                print(columna)
+        print('\n')
+
+        padron = info_mail_elegido[0]
+
+        ubicacion_padron = [fila[1] for fila in filas].index(padron)
+
+        nombre_alumno = filas[ubicacion_padron][0]
+        print('El alumno es:',nombre_alumno)
+
+    with open("docente-alumnos.csv", 'r') as csvfile2:
+        print('================================')
+        print('Revisando docente-alumnos.csv:\n\n')
+        leer_csv = csv.reader(csvfile2)
+
+        titulos2 = next(leer_csv)
+
+        for fila in leer_csv:
+            filas2.append(fila)
+
+        print('Los Titulos son: ' + ', '.join(titulo for titulo in titulos))
+        print('\nLas primeras 5 filas son:\n')
+        for fila in filas2[:5]:
+
+            for columna in fila:
+                print(columna)
+        print('\n')
+
+        ubicacion_docente = [fila[1] for fila in filas2].index(nombre_alumno)
+
+        nombre_docente = filas2[ubicacion_docente][0]
+        print('El docente es:',nombre_docente)
+
+    return nombre_eval, nombre_docente, nombre_alumno
+
+def crear_directorio(ubicacion_entrega: str) -> None:
+    '''
+    Crea el directorio apropiado en el cual se guarda la entrega del alumno, 
+    en caso de que no exista.
+    '''
+    os.makedirs(ubicacion_entrega)
+    print('Directorio creado.')
+
+def descomprimir_entrega(ubicacion_zip: list, ubicacion_entrega: str) -> None:
     '''
     Coloca los archivos del zip en la carpeta del alumno correspondiente.
     '''
-    print('Extrayendo los archivos comprimidos en el zip.')
+    print('Extrayendo los archivos comprimidos en el zip:\n')
+    archivo_zip = ubicacion_zip[0]
+    with ZipFile(archivo_zip, 'r') as zip:
+        for informacion in zip.infolist():
+            print(informacion.filename)
+        print('\nExtaccion en proceso.')
+        zip.extractall(path = ubicacion_entrega)
+        print('Extraccion completada.')
+        print('================================')
+        print('Actualizacion de entrega completada.')
+        print('================================')
+
+def guardar_entrega_alumno(ubicacion_zip: list, info_mail_elegido: list) -> None:
+    '''
+    Recibe los nombres de la evaluacion, el docente y el alumno, y guarda 
+    la entrega del alumno, revisando si la ubicacion correcta existe. Si no existe, la genera.
+    '''
+    nombre_eval, nombre_docente, nombre_alumno = obtener_nombres_csv(info_mail_elegido)
+
+    ubicacion_entrega = (os.path.abspath(os.path.join(BASE_DIR,nombre_eval,nombre_docente,nombre_alumno)))
+
+    if os.path.isdir(ubicacion_entrega):
+        print(ubicacion_entrega) 
+        print("existe, se guardara alli la entrega.")
+        descomprimir_entrega(ubicacion_zip, ubicacion_entrega)
+    else:
+        print(ubicacion_entrega) 
+        print("no existe, se creara el directorio para que se extraiga alli la entrega.")
+        crear_directorio(ubicacion_entrega)
+        descomprimir_entrega(ubicacion_zip, ubicacion_entrega)
 
 def enviar_mensaje(mensaje_a_enviar: str) -> None:
     '''
@@ -50,7 +150,8 @@ def revisar_csv(info_mail_elegido: list, lista_errores: list) -> None:
     filas = []
 
     with open("alumnos.csv", 'r') as csvfile:
-        print('Comparando entrega con alumnos.csv')
+        print('================================')
+        print('Comparando entrega con alumnos.csv\n')
         leer_csv = csv.reader(csvfile)
 
         titulos = next(leer_csv)
@@ -61,7 +162,7 @@ def revisar_csv(info_mail_elegido: list, lista_errores: list) -> None:
         print('Los Titulos son: ' + ', '.join(titulo for titulo in titulos))
         print('\nLas primeras 5 filas son:\n')
         for fila in filas[:5]:
-            # parsing each column of a row
+
             for columna in fila:
                 print(columna)
         print('\n')
@@ -81,13 +182,14 @@ def revisar_csv(info_mail_elegido: list, lista_errores: list) -> None:
                     print('El Mail de envio NO concuerda con el Mail del alumno en el archivo.')
                     lista_errores.append("Mail de envio NO concuerda con Mail de Alumno.")
             else:
-                print('El mail NO existe en el archivo.')
+                print('El mail NO existe en el archivo:')
+                print(mail_enviado)
                 lista_errores.append("Mail de envio NO existe en el archivo de alumnos.")
         else:
             print('El Padron en el asunto del mail NO existe en alumnos.csv')
             lista_errores.append("Padron NO concuerda con Mail de Alumno.")
 
-def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip: str) -> None:
+def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip: list) -> None:
     '''
     Notifica al alumno por mail sobre su entrega, previamente 
     revisando su formato en caso de que haya errores, para luego 
@@ -117,19 +219,24 @@ def notificar_alumno(info_mail_elegido: list, lista_errores: list, ubicacion_zip
     texto_mensaje = x + veredicto
 
     #Envio mail.
-    print('Se enviara un mail notificando el estado de la entrega al alumno.')
+    print('Se enviara un mail notificando el estado de la entrega al alumno.\n')
 
     mensaje_a_enviar = crear_mensaje(info_mail_elegido[3], info_mail_elegido[0], texto_mensaje)
-    
+
     enviar_mensaje(mensaje_a_enviar)
 
     if entrega_correcta == True:
-        print('Se guardara el archivo del alumno en su carpeta correspondiente.')
-        guardar_zip_alumno(ubicacion_zip)
+        print('Se guardara el archivo del alumno en su carpeta correspondiente.\n')
+        guardar_entrega_alumno(ubicacion_zip, info_mail_elegido)
     else:
         print('El formato de entrega es incorrecto, no se guardara la entrega del alumno en su carpeta.')
 
-def submenu_actualizar():
+def submenu_actualizar() -> None:
+  existen_archivos_csv = (os.path.exists('alumnos.csv') and 
+          os.path.exists('docentes.csv') and os.path.exists('docente-alumnos.csv'))
+  
+  if existen_archivos_csv == True:
+    print('Los archivos csv existen, continuando con el procedimiento.')
     print('''\n\nVer Mails para recibir la entrega de un Alumno.
     ================================
     1. Lista Completa
@@ -144,8 +251,13 @@ def submenu_actualizar():
 
     if opcion == "1":
         lista_completa(lista_mails_numerada, accion)
+
     elif opcion == "2":
         buscar_mail(lista_mails_numerada, accion)
+
+  else:
+      print('''alumnos.csv no existe. Por favor, ejecute la opcion 6 "Generar 
+          carpetas de una evaluacion" para que los archivos csv necesarios esten disponibles.''')
 
 def enontrar_id(carpeta : str) -> str:
   lista_archivos = SERVICIO_DRIVE.files().list(orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute() #Lo uso para encontrar el id de la carpeta
@@ -311,7 +423,7 @@ def loop_carpeta_remota(BASE_DIR : str) -> dict:
                       diccionario_remoto['archivos'][i.get("name")]['archivo_id'] = i.get("id")
   return diccionario_remoto
 
-def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, ubicacion_zip) -> None:
+def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, ubicacion_zip: list) -> None:
     '''
     Determina si se debe continuar con el programa
     (en caso de que se haya elegido la funcion 7, Actualizar Entrega).
@@ -319,7 +431,7 @@ def accion_apropiada(info_mail_elegido: list, accion: str, lista_errores: list, 
     if accion == 'Generar':
         print('Archivos guardados en el directorio actual.')
     elif accion == 'Actualizar':
-        print('Se determinara si la entrega tiene el formato correcto.')
+        print('\nSe determinara si la entrega tiene el formato correcto.')
         notificar_alumno(info_mail_elegido, lista_errores, ubicacion_zip)
 
 def elegir_mail(numerada: list, accion: str) -> None:
@@ -349,8 +461,8 @@ def elegir_mail(numerada: list, accion: str) -> None:
 
 def procesar_mostrar_mails(mails, numerada: list) -> None:
     '''
-    Procesa e imprime los mails de la lista de mails recibida(en orden de mas a menos recientes), y 
-    crea una lista con la informacion clave de cada mail (su asunto, cuerpo, id y mail remitente).
+    Procesa e imprime los mails de la lista de mails recibida(en orden de mas a menos recientes), y crea una lista 
+    con la informacion clave de cada mail (su asunto, cuerpo, id y mail remitente).
     '''
     mensajes = mails.get('messages')
 
@@ -373,9 +485,9 @@ def procesar_mostrar_mails(mails, numerada: list) -> None:
                     partes = mensaje_email.get_payload()
                     cuerpo = partes[0].get_payload()
                     if type(cuerpo) == list:
-                        cuerpo = "(Mail contiene archivo adjunto.)\n"
+                        cuerpo = "(Mail SI contiene archivo adjunto.)\n"
                     else:
-                        cuerpo = cuerpo
+                        cuerpo = "(Mail NO contiene archivo adjunto.)\n"
                 elif content_type == 'text':
                     cuerpo = mensaje_email.get_payload()
                 else:
