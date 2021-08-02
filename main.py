@@ -349,7 +349,6 @@ def actualizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
                       SERVICIO_DRIVE.files().update(fileId=remoto['archivos'][i]['archivo_id'], media_body=contenido_actualizar).execute()
 
 def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
-  print('SINCRONIZANDO.')
   #primero reviso que exista el directorio, si no esta, lo creo
   existe_carpeta = False
   lista_archivos = SERVICIO_DRIVE.files().list(orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute()
@@ -364,13 +363,13 @@ def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
           'mimeType': 'application/vnd.google-apps.folder'
           }
       SERVICIO_DRIVE.files().create(body=archivo_metadata).execute()
-  print('SINCRONIZANDO..')
   crear(local, remoto, BASE_DIR)
-  
+
   actualizar(local, remoto, BASE_DIR)
 
 def loop_carpeta_local(BASE_DIR : str) -> dict:
   print('SINCRONIZANDO..')
+
   diccionario_local = {'carpetas':[],'archivos':{}}
   for archivo in os.scandir(BASE_DIR): #loop los archivos locales
       if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)) == False: #Archivos
@@ -542,8 +541,10 @@ def alumnos_folders(asunto_mail: str):
             except Exception:
                 pass
 
+
 def descargar_adjunto(servicio, id_usuario: str, id_msj: str, directorio: str, lista_errores: list, 
   ubicacion_zip: list, nombre_evaluacion: list, accion: str) -> None:
+
     '''
     Descarga los archivos adjuntos al mail seleccionado por el usuario, y reconoce si 
     el archivo es de formato comprimido zip. Devuelve el nombre de la evaluacion, dado en el asunto.
@@ -596,6 +597,7 @@ def descargar_adjunto(servicio, id_usuario: str, id_msj: str, directorio: str, l
 
     unzip(fileName)
     asunto_mail = mensaje_email['Subject']
+
     if accion == 'Generar': 
       #Si el asunto del mail contiene el nombre de la evaluacion, guardarlo en la lista.
       nombre_evaluacion.append(asunto_mail)
