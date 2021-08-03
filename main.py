@@ -17,6 +17,8 @@ from zipfile import ZipFile
 SERVICIO_DRIVE = service_drive.obtener_servicio()
 SERVICIO_GMAIL = service_gmail.obtener_servicio()
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+diccionario_local = {'carpetas':[],'archivos':{}}
+diccionario_remoto = {'carpetas':[],'archivos':{}}
 
 def obtener_nombres_csv(info_mail_elegido: list, nombre_evaluacion: list) -> str:
     '''
@@ -270,12 +272,12 @@ def enontrar_id(carpeta : str) -> str:
   return id_carpeta
 
 def crear(local : dict, remoto : dict, BASE_DIR : str) -> None:
-  id_carpeta = enontrar_id(BASE_DIR.rsplit('\\', 1)[1])
   #primero arranco por las carpetas
   for i in local['carpetas']: #Creo carpetas en el remoto
-      if i not in remoto['carpetas']:
+      if i not in remoto['carpetas']: #rsplit(f+'\\', 1)[1]
+          id_carpeta = enontrar_id(i.rsplit('\\', 2)[1])
           archivo_metadata = {
-          'name': i,
+          'name': i.rsplit('\\', 1)[1],
           'mimeType': 'application/vnd.google-apps.folder',
           'parents': [id_carpeta]
           }
@@ -285,22 +287,20 @@ def crear(local : dict, remoto : dict, BASE_DIR : str) -> None:
       if i not in local['carpetas']:
           os.chdir(BASE_DIR)
           os.makedirs(i)
-
   #Segundo, voy por los archivos
   for i in local['archivos']:#Si no esta en remoto, lo agrego
-      carpeta_del_archivo_local = local['archivos'][i]['carpeta']
+      carpeta_del_archivo_local = local['archivos'][i]['carpeta'].rsplit('\\', 1)[1]
       if i not in remoto['archivos']:
           id_carpeta = enontrar_id(carpeta_del_archivo_local)
           archivo_metadata = {
               'name': i,
               'parents': [id_carpeta]
               }
-          if local['archivos'][i]['carpeta'] == BASE_DIR.rsplit('\\', 1)[1]:
-              media = MediaFileUpload(BASE_DIR+'\\'+i)
-              SERVICIO_DRIVE.files().create(body=archivo_metadata, media_body = media).execute()
-          else:
-              media = MediaFileUpload(BASE_DIR+'\\'+str(local['archivos'][i]['carpeta'])+'\\'+i)
-              SERVICIO_DRIVE.files().create(body=archivo_metadata, media_body = media).execute()
+          try:
+            media = MediaFileUpload(local['archivos'][i]['carpeta']+'\\'+i)
+            SERVICIO_DRIVE.files().create(body=archivo_metadata, media_body = media).execute()
+          except Exception:
+              print('fail')
 
   for i in remoto['archivos']:#Si no esta en local, lo agrego
       if i not in local['archivos']:
@@ -311,14 +311,9 @@ def crear(local : dict, remoto : dict, BASE_DIR : str) -> None:
           while not listo:
               listo = downloader.next_chunk()
           fh.seek(0)
-          if remoto['archivos'][i]['carpeta'] == BASE_DIR.rsplit('\\', 1)[1]:
-              with open(os.path.join(BASE_DIR+'\\', i),'wb') as f:
-                  f.write(fh.read())
-                  f.close()
-          else:
-              with open(os.path.join(BASE_DIR+'\\'+str(remoto['archivos'][i]['carpeta']), i),'wb') as f:
-                  f.write(fh.read())
-                  f.close()
+          with open(os.path.join(remoto['archivos'][i]['carpeta'],i),'wb') as f:
+              f.write(fh.read())
+              f.close()
 
 def actualizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
   for i in remoto['archivos']:
@@ -332,21 +327,12 @@ def actualizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
                   while not listo:
                       listo = downloader.next_chunk()
                   fh.seek(0)
-                  if remoto['archivos'][i]['carpeta'] == BASE_DIR.rsplit('\\', 1)[1]:
-                      with open(os.path.join(BASE_DIR+'\\', i),'wb') as f:
-                          f.write(fh.read())
-                          f.close()
-                  else:
-                      with open(os.path.join(BASE_DIR+'\\'+str(remoto['archivos'][i]['carpeta']), i),'wb') as f:
-                          f.write(fh.read())
-                          f.close()
+                  with open(os.path.join(remoto['archivos'][i]['carpeta'],i),'wb') as f:
+                      f.write(fh.read())
+                      f.close()
               elif remoto['archivos'][i]['modificacion'] < local['archivos'][x]['modificacion']:
-                  if local['archivos'][i]['carpeta'] == BASE_DIR.rsplit('\\', 1)[1]:
-                      contenido_actualizar = MediaFileUpload(BASE_DIR+'\\'+x)
-                      SERVICIO_DRIVE.files().update(fileId=remoto['archivos'][i]['archivo_id'], media_body=contenido_actualizar).execute()
-                  else:
-                      contenido_actualizar = MediaFileUpload(BASE_DIR+'\\'+str(remoto['archivos'][x]['carpeta']+'\\'+x))
-                      SERVICIO_DRIVE.files().update(fileId=remoto['archivos'][i]['archivo_id'], media_body=contenido_actualizar).execute()
+                  contenido_actualizar = MediaFileUpload(local['archivos'][i]['carpeta']+'\\'+i)
+                  SERVICIO_DRIVE.files().update(fileId=remoto['archivos'][i]['archivo_id'], media_body=contenido_actualizar).execute()
 
 def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
   #primero reviso que exista el directorio, si no esta, lo creo
@@ -364,36 +350,24 @@ def sincronizar(local : dict, remoto : dict, BASE_DIR : str) -> None:
           }
       SERVICIO_DRIVE.files().create(body=archivo_metadata).execute()
   crear(local, remoto, BASE_DIR)
-
   actualizar(local, remoto, BASE_DIR)
 
 def loop_carpeta_local(BASE_DIR : str) -> dict:
-  print('SINCRONIZANDO..')
-
-  diccionario_local = {'carpetas':[],'archivos':{}}
-  for archivo in os.scandir(BASE_DIR): #loop los archivos locales
-      if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)) == False: #Archivos
-          print('SINCRONIZANDO.')
-          get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name) #consigo la fecha de modificacion
-          modify_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(get_time)) #lo paso a formato fecha
-          fecha_mod_local = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S') #lo paso a type date
-          diccionario_local['archivos'][str(archivo.name)] = {}
-          diccionario_local['archivos'][str(archivo.name)]['modificacion'] = fecha_mod_local
-          diccionario_local['archivos'][str(archivo.name)]['carpeta'] = BASE_DIR.rsplit('\\', 1)[1]
-      else:
-          diccionario_local['carpetas'].append(str(archivo.name))
-          for i in os.scandir(BASE_DIR+'\\'+str(archivo.name)):
-              if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)+'\\'+i.name) == False:
-                get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name+'\\'+i.name) #consigo la fecha de modificacion
+    for archivo in os.scandir(BASE_DIR): #loop los archivos locales
+            if os.path.isdir(str(BASE_DIR)+'\\'+str(archivo.name)) == False: #Archivos
+                get_time = os.path.getmtime(BASE_DIR+'\\'+archivo.name) #consigo la fecha de modificacion
                 modify_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(get_time)) #lo paso a formato fecha
                 fecha_mod_local = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S') #lo paso a type date
-                diccionario_local['archivos'][str(i.name)] = {}
-                diccionario_local['archivos'][str(i.name)]['modificacion'] = fecha_mod_local
-                diccionario_local['archivos'][str(i.name)]['carpeta'] = archivo.name
-  return diccionario_local
+                diccionario_local['archivos'][str(archivo.name)] = {}
+                diccionario_local['archivos'][str(archivo.name)]['modificacion'] = fecha_mod_local
+                diccionario_local['archivos'][str(archivo.name)]['carpeta'] = BASE_DIR
+            else:
+                diccionario_local['carpetas'].append(str(BASE_DIR)+'\\'+str(archivo.name))
+                folder_dir = str(BASE_DIR)+'\\'+str(archivo.name)
+                loop_carpeta_local(folder_dir)
+    return diccionario_local
 
 def loop_carpeta_remota(BASE_DIR : str) -> dict:
-  diccionario_remoto = {'carpetas':[],'archivos':{}}
   lista_archivos = SERVICIO_DRIVE.files().list(orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute()
   for archivo in lista_archivos.get('files', []): #Loop hasta encontrar la carpeta remota
       nombre = archivo.get("name")
@@ -402,24 +376,15 @@ def loop_carpeta_remota(BASE_DIR : str) -> dict:
               carpeta_principal_id = archivo.get("id")
               query = f"parents = '{carpeta_principal_id}'"
               respuesta = SERVICIO_DRIVE.files().list(q=query,orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute()
-              for i in respuesta.get('files', []):
+              for i in respuesta.get('files', []): #Loop los archivos
                   if i.get("mimeType") == 'application/vnd.google-apps.folder': #Si es carpeta
-                      diccionario_remoto['carpetas'].append(str(i.get("name")))
-                      carpeta_id = i.get("id")
-                      query = f"parents = '{carpeta_id}'"
-                      in_folder = SERVICIO_DRIVE.files().list(q=query,orderBy='folder', spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime)').execute()
-                      for x in in_folder.get('files', []):#archivos dentro de las carpetas
-                          modificacion_de_archivo_remoto = datetime.strptime(i.get("modifiedTime")[:-5], '%Y-%m-%dT%H:%M:%S')-timedelta(hours=3)# quito 3 porque es cet
-                          diccionario_remoto['archivos'][x.get("name")] = {}
-                          diccionario_remoto['archivos'][x.get("name")]['modificacion'] = modificacion_de_archivo_remoto
-                          diccionario_remoto['archivos'][x.get("name")]['carpeta'] = i.get("name")
-                          diccionario_remoto['archivos'][x.get("name")]['carpeta_id'] = carpeta_id
-                          diccionario_remoto['archivos'][x.get("name")]['archivo_id'] = x.get("id")
+                      diccionario_remoto['carpetas'].append(BASE_DIR+'\\'+str(i.get("name")))
+                      loop_carpeta_remota(BASE_DIR+'\\'+i.get("name"))
                   else:
                       modificacion_de_archivo_remoto = datetime.strptime(i.get("modifiedTime")[:-5], '%Y-%m-%dT%H:%M:%S')-timedelta(hours=3)
                       diccionario_remoto['archivos'][i.get("name")] = {}
                       diccionario_remoto['archivos'][i.get("name")]['modificacion'] = modificacion_de_archivo_remoto
-                      diccionario_remoto['archivos'][i.get("name")]['carpeta'] = nombre
+                      diccionario_remoto['archivos'][i.get("name")]['carpeta'] = BASE_DIR
                       diccionario_remoto['archivos'][i.get("name")]['carpeta_id'] = carpeta_principal_id
                       diccionario_remoto['archivos'][i.get("name")]['archivo_id'] = i.get("id")
   return diccionario_remoto
@@ -843,7 +808,7 @@ def main() -> None:
       if id_archivo != "0":
         descargar_archivo_remoto(id_archivo, nombre_archivo)
     elif opcion == "5":
-      print('Sincronizando....')  
+      print('Sincronizando.... esto va a tomar un rato')  
       diccionario_local = loop_carpeta_local(BASE_DIR)
       diccionario_remoto = loop_carpeta_remota(BASE_DIR)
       sincronizar(diccionario_local, diccionario_remoto, BASE_DIR)
